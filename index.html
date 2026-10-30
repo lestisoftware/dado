@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dado</title>
+<style>
+  :root {
+    --s: clamp(90px, 22vw, 150px);      /* die size */
+    --die: #d23b33;
+    --die-edge: #a82a24;
+    --pip: #ffffff;
+    --bg: #f6f5f2;
+    --ink: #1d1d1f;
+    --muted: #8a8a8e;
+  }
+  body[data-theme="ivory"]    { --die: #f3eee4; --die-edge: #d6cfc0; --pip: #1d1d1f; }
+  body[data-theme="midnight"] { --die: #262b3a; --die-edge: #161a25; --pip: #f4f4f4; }
+  body[data-theme="teal"]     { --die: #1f8a84; --die-edge: #156560; --pip: #ffffff; }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(ellipse at 50% 40%, #ffffff 0%, var(--bg) 60%, #ecebe7 100%);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+    padding-bottom: 32px;
+  }
+
+  /* ---------- Stage ---------- */
+  .stage {
+    display: flex;
+    gap: calc(var(--s) * 0.55);
+    align-items: flex-end;
+    justify-content: center;
+    height: calc(var(--s) * 2.3);
+    padding-bottom: calc(var(--s) * 0.35);
+    cursor: pointer;
+  }
+  .slot {
+    position: relative;
+    width: var(--s);
+    height: var(--s);
+    perspective: 900px;
+  }
+  .shadow {
+    position: absolute;
+    left: 50%; bottom: calc(var(--s) * -0.32);
+    width: calc(var(--s) * 1.25);
+    height: calc(var(--s) * 0.28);
+    margin-left: calc(var(--s) * -0.625);
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(0,0,0,.28), rgba(0,0,0,0));
+    will-change: transform, opacity;
+  }
+  .body, .tilt, .cube {
+    position: absolute; inset: 0;
+    transform-style: preserve-3d;
+  }
+  .body { will-change: transform; }
+  .tilt { transform: rotateX(-24deg) rotateY(-28deg); }
+  .cube { will-change: transform; }
+
+  .face, .core {
+    position: absolute;
+    width: var(--s); height: var(--s);
+    backface-visibility: hidden;
+  }
+  .face {
+    background: var(--die);
+    border-radius: 14%;
+    display: grid;
+    grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+    padding: 15%;
+    overflow: hidden;
+  }
+  /* soft sheen + dynamic shading driven by JS (--shade) */
+  .face::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(circle at 30% 25%, rgba(255,255,255,.18), rgba(255,255,255,0) 60%);
+    pointer-events: none;
+  }
+  .face::after {
+    content: ""; position: absolute; inset: 0;
+    background: #000;
+    opacity: var(--shade, 0);
+    pointer-events: none;
+  }
+  .core { background: var(--die-edge); width: calc(var(--s) - 4px); height: calc(var(--s) - 4px); left: 2px; top: 2px; }
+
+  .pip {
+    width: 72%; height: 72%;
+    margin: auto;
+    border-radius: 50%;
+    background: var(--pip);
+    box-shadow: inset 0 calc(var(--s) * 0.025) calc(var(--s) * 0.03) rgba(0,0,0,.35);
+  }
+
+  /* ---------- UI ---------- */
+  .result {
+    height: 1.2em;
+    font-size: clamp(40px, 9vw, 64px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    transition: opacity .25s, transform .25s;
+  }
+  .result.hidden { opacity: 0; transform: translateY(6px); }
+  .result small {
+    display: block; text-align: center;
+    font-size: 14px; font-weight: 500; letter-spacing: 0;
+    color: var(--muted);
+  }
+
+  .controls { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+
+  .roll {
+    font: inherit; font-size: 17px; font-weight: 600;
+    padding: 14px 44px;
+    border: 0; border-radius: 999px;
+    background: var(--ink); color: #fff;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(0,0,0,.15);
+    transition: transform .12s, box-shadow .12s, opacity .2s;
+  }
+  .roll:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(0,0,0,.18); }
+  .roll:active { transform: translateY(1px) scale(.98); }
+  .roll:disabled { opacity: .5; cursor: default; transform: none; }
+
+  .row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; justify-content: center; }
+
+  .seg {
+    display: inline-flex; padding: 3px; gap: 2px;
+    background: rgba(0,0,0,.06); border-radius: 999px;
+  }
+  .seg button {
+    font: inherit; font-size: 14px; font-weight: 500;
+    min-width: 38px; padding: 6px 12px;
+    border: 0; border-radius: 999px;
+    background: transparent; color: var(--ink);
+    cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+  .swatches { display: flex; gap: 10px; }
+  .swatches button {
+    width: 24px; height: 24px; padding: 0;
+    border-radius: 50%; border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.15);
+    cursor: pointer;
+  }
+  .swatches button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
+
+  .history {
+    display: flex; gap: 6px; min-height: 26px;
+    font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .history span {
+    padding: 3px 9px; border-radius: 999px; background: rgba(0,0,0,.05);
+  }
+  .history span:first-child { color: var(--ink); background: rgba(0,0,0,.09); }
+
+  .hint { font-size: 12px; color: var(--muted); }
+
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 8px;
+    text-align: center;
+    font-size: 11px; color: var(--muted);
+  }
+  footer a { color: inherit; text-decoration: none; }
+  footer a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage" title="Click to roll"></div>
+
+<div class="result hidden" id="result" aria-live="polite">&nbsp;</div>
+
+<div class="controls">
+  <button class="roll" id="roll">Roll</button>
+
+  <div class="row">
+    <div class="seg" id="count" aria-label="Number of dice">
+      <button data-n="1" aria-pressed="true">1</button>
+      <button data-n="2" aria-pressed="false">2</button>
+      <button data-n="3" aria-pressed="false">3</button>
+    </div>
+    <div class="swatches" id="themes" aria-label="Die color">
+      <button data-theme="red"      style="background:#d23b33" aria-pressed="true"  aria-label="Red"></button>
+      <button data-theme="ivory"    style="background:#f3eee4" aria-pressed="false" aria-label="Ivory"></button>
+      <button data-theme="midnight" style="background:#262b3a" aria-pressed="false" aria-label="Midnight"></button>
+      <button data-theme="teal"     style="background:#1f8a84" aria-pressed="false" aria-label="Teal"></button>
+    </div>
+  </div>
+
+  <div class="history" id="history"></div>
+  <div class="hint">Press Space or click the dice to roll</div>
+</div>
+
+<footer><a href="https://lestisoftware.fi" target="_blank" rel="noopener">Lesti Software Oy</a> · FI2875878-8</footer>
+
+<script>
+(() => {
+  // Opposite faces sum to 7. Each face: CSS transform placing it on the cube,
+  // its outward normal, and the cube rotation (x, y) that brings it to the front.
+  const FACES = {
+    1: { place: "rotateY(0deg)",   normal: [0, 0, 1],  rot: [0, 0] },
+    6: { place: "rotateY(180deg)", normal: [0, 0, -1], rot: [0, 180] },
+    3: { place: "rotateY(90deg)",  normal: [1, 0, 0],  rot: [0, -90] },
+    4: { place: "rotateY(-90deg)", normal: [-1, 0, 0], rot: [0, 90] },
+    2: { place: "rotateX(90deg)",  normal: [0, -1, 0], rot: [-90, 0] },
+    5: { place: "rotateX(-90deg)", normal: [0, 1, 0],  rot: [90, 0] },
+  };
+  // Pip positions in a 3x3 grid (1..9, row-major)
+  const PIPS = {
+    1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9],
+    5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9],
+  };
+  const TILT = [-24, -28];
+  const LIGHT = normalize([-0.25, -0.6, 0.8]);
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const stage = document.getElementById("stage");
+  const resultEl = document.getElementById("result");
+  const rollBtn = document.getElementById("roll");
+  const historyEl = document.getElementById("history");
+
+  let dice = [];
+  let rolling = false;
+  const history = [];
+
+  // ---------- math ----------
+  function normalize(v) { const l = Math.hypot(...v); return v.map(c => c / l); }
+  const rad = d => d * Math.PI / 180;
+  function rotX(a, [x, y, z]) { const c = Math.cos(rad(a)), s = Math.sin(rad(a)); return [x, c * y - s * z, s * y + c * z]; }
+  function rotY(a, [x, y, z]) { const c = Math.cos(rad(a)), s = Math.sin(rad(a)); return [c * x + s * z, y, -s * x + c * z]; }
+  function rotZ(a, [x, y, z]) { const c = Math.cos(rad(a)), s = Math.sin(rad(a)); return [c * x - s * y, s * x + c * y, z]; }
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const randInt = (a, b) => Math.floor(rand(a, b + 1));
+
+  // ---------- building ----------
+  function makeDie() {
+    const slot = document.createElement("div");
+    slot.className = "slot";
+    slot.innerHTML = `<div class="shadow"></div><div class="body"><div class="tilt"><div class="cube"></div></div></div>`;
+    const cube = slot.querySelector(".cube");
+
+    // Inner core fills the gaps behind the rounded corners
+    for (const n in FACES) {
+      const core = document.createElement("div");
+      core.className = "core";
+      core.style.transform = `${FACES[n].place} translateZ(calc(var(--s) / 2 - 2px))`;
+      cube.appendChild(core);
+    }
+    const faces = {};
+    for (const n in FACES) {
+      const face = document.createElement("div");
+      face.className = "face";
+      face.style.transform = `${FACES[n].place} translateZ(calc(var(--s) / 2))`;
+      for (let cell = 1; cell <= 9; cell++) {
+        const pip = document.createElement("div");
+        if (PIPS[n].includes(cell)) pip.className = "pip";
+        face.appendChild(pip);
+      }
+      cube.appendChild(face);
+      faces[n] = face;
+    }
+
+    const value = randInt(1, 6);
+    const die = {
+      slot, cube, faces,
+      body: slot.querySelector(".body"),
+      shadow: slot.querySelector(".shadow"),
+      rx: FACES[value].rot[0], ry: FACES[value].rot[1], rz: 0,
+      value,
+    };
+    render(die, 0, 0);
+    return die;
+  }
+
+  function setCount(n) {
+    stage.innerHTML = "";
+    dice = Array.from({ length: n }, makeDie);
+    dice.forEach(d => stage.appendChild(d.slot));
+    resultEl.classList.add("hidden");
+  }
+
+  // ---------- rendering ----------
+  function render(d, lift, drift) {
+    d.cube.style.transform = `rotateZ(${d.rz}deg) rotateX(${d.rx}deg) rotateY(${d.ry}deg)`;
+    d.body.style.transform = `translate3d(${drift}px, ${-lift}px, 0)`;
+
+    const h = Math.min(lift / 220, 1);
+    d.shadow.style.transform = `scale(${1 - h * 0.45})`;
+    d.shadow.style.opacity = 1 - h * 0.6;
+
+    // Shade each face by how much it faces the light
+    for (const n in FACES) {
+      let v = FACES[n].normal;
+      v = rotY(d.ry, v); v = rotX(d.rx, v); v = rotZ(d.rz, v);
+      v = rotY(TILT[1], v); v = rotX(TILT[0], v);
+      const dot = v[0] * LIGHT[0] + v[1] * LIGHT[1] + v[2] * LIGHT[2];
+      d.faces[n].style.setProperty("--shade", (0.42 * (1 - Math.max(dot, 0))).toFixed(3));
+    }
+  }
+
+  // Smallest angle >= from that is congruent to target (mod 360), plus extra full turns
+  function spinTo(from, target, turns) {
+    return target + 360 * Math.ceil((from - target) / 360) + 360 * turns;
+  }
+
+  const easeOutQuart = t => 1 - Math.pow(1 - t, 4);
+
+  // ---------- rolling ----------
+  function rollDie(d) {
+    return new Promise(resolve => {
+      const value = randInt(1, 6);
+      const [tx, ty] = FACES[value].rot;
+      const from = { rx: d.rx, ry: d.ry, rz: d.rz };
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const to = {
+        rx: spinTo(from.rx, tx, randInt(2, 4)),
+        ry: dir > 0 ? spinTo(from.ry, ty, randInt(1, 3)) : -spinTo(-from.ry, -ty, randInt(1, 3)),
+        rz: spinTo(from.rz, 90 * randInt(0, 3), randInt(0, 1)),
+      };
+      const duration = reducedMotion ? 400 : rand(1500, 2100);
+      const height = reducedMotion ? 0 : rand(150, 210);
+      const sway = rand(-28, 28);
+      const bounces = 3;
+      const start = performance.now();
+
+      function frame(now) {
+        const t = Math.min((now - start) / duration, 1);
+        const e = easeOutQuart(t);
+        d.rx = from.rx + (to.rx - from.rx) * e;
+        d.ry = from.ry + (to.ry - from.ry) * e;
+        d.rz = from.rz + (to.rz - from.rz) * e;
+
+        // Decaying bounces: first hop is the longest
+        const lift = height * Math.pow(1 - t, 2) * Math.abs(Math.sin(Math.PI * bounces * Math.pow(t, 0.65)));
+        const drift = sway * Math.sin(Math.PI * e);
+        render(d, lift, drift);
+
+        if (t < 1) requestAnimationFrame(frame);
+        else {
+          d.rx = tx; d.ry = ty; d.rz = ((to.rz % 360) + 360) % 360;
+          render(d, 0, 0);
+          d.value = value;
+          resolve(value);
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  async function roll() {
+    if (rolling) return;
+    rolling = true;
+    rollBtn.disabled = true;
+    resultEl.classList.add("hidden");
+
+    const values = await Promise.all(dice.map(rollDie));
+    const total = values.reduce((a, b) => a + b, 0);
+
+    resultEl.innerHTML = values.length > 1
+      ? `${total}<small>${values.join(" + ")}</small>`
+      : `${total}`;
+    resultEl.classList.remove("hidden");
+
+    history.unshift(values.length > 1 ? `${total} (${values.join("·")})` : `${total}`);
+    history.length = Math.min(history.length, 8);
+    historyEl.innerHTML = history.map(h => `<span>${h}</span>`).join("");
+
+    rolling = false;
+    rollBtn.disabled = false;
+  }
+
+  // ---------- controls ----------
+  rollBtn.addEventListener("click", roll);
+  stage.addEventListener("click", roll);
+  document.addEventListener("keydown", e => {
+    if ((e.code === "Space" || e.code === "Enter") && !e.repeat) {
+      e.preventDefault();
+      roll();
+    }
+  });
+
+  function pressGroup(container, attr, onSelect) {
+    container.addEventListener("click", e => {
+      const btn = e.target.closest("button");
+      if (!btn || rolling) return;
+      container.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn));
+      onSelect(btn.dataset[attr]);
+      btn.blur();
+    });
+  }
+  pressGroup(document.getElementById("count"), "n", n => { setCount(+n); history.length = 0; historyEl.innerHTML = ""; });
+  pressGroup(document.getElementById("themes"), "theme", t => { document.body.dataset.theme = t; });
+
+  setCount(1);
+})();
+</script>
+</body>
+</html>
