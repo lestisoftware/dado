@@ -6,7 +6,8 @@
 <title>Dado</title>
 <style>
   :root {
-    --s: clamp(90px, 22vw, 150px);      /* die size */
+    --n: 1;                               /* number of dice, set by JS */
+    --s: clamp(60px, min(34vw, 22vh, 88vw / (var(--n) * 1.9)), 170px);   /* die size */
     --die: #d23b33;
     --die-edge: #a82a24;
     --pip: #ffffff;
@@ -160,7 +161,8 @@
   .swatches button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
 
   .history {
-    display: flex; gap: 6px; min-height: 26px;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; min-height: 26px;
+    max-width: min(560px, 92vw);
     font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums;
   }
   .history span {
@@ -169,6 +171,7 @@
   .history span:first-child { color: var(--ink); background: rgba(0,0,0,.09); }
 
   .hint { font-size: 12px; color: var(--muted); }
+  @media (hover: none) { .hint { display: none; } }
 
   footer {
     position: fixed; left: 0; right: 0; bottom: 0;
@@ -289,6 +292,7 @@
   }
 
   function setCount(n) {
+    document.documentElement.style.setProperty("--n", n);
     stage.innerHTML = "";
     dice = Array.from({ length: n }, makeDie);
     dice.forEach(d => stage.appendChild(d.slot));
